@@ -1,0 +1,11 @@
+{
+  "graph": {
+		"type": "grid",
+		"width": 5,
+		"height": 2,
+		"depth": 1,
+		"wrap_x": true,
+		"wrap_y": true,
+		"wrap_z": true
+	}
+}
