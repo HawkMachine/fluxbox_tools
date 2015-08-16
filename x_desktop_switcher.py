@@ -22,6 +22,13 @@ class XDesktopsControler(object):
   def SetNumDesktops(self, num):
     return subprocess.call(['xdotool', 'set_num_desktops', str(num)])
 
+  def SendWindow(self, window, desktop):
+    return subprocess.call(['wmctrl', '-r', window, '-t', str(desktop)])
+
+  def TakeWindow(self, window, desktop):
+    self.SendWindow(window, desktop)
+    self.SetDesktop(desktop)
+
 
 class FluxboxWorkspaceGridConf(object):
 
@@ -91,6 +98,20 @@ def MoveInGraph(graph_, label, cmds):
   return node
 
 
+def ResolveCommandsInGraph(graph_, cmds, x_desk_ctrl, fluxbox_conf):
+  cur = x_desk_ctrl.GetCurrentDesktop()
+  label = fluxbox_conf.Id2Label(cur)
+  print 'Current desktop =', cur
+  print 'Graph node      =', label
+
+  node = MoveInGraph(graph_, label, cmds)
+
+  target = fluxbox_conf.Label2Id(node.Label())
+  print 'Target desktop  =', target
+  print 'Graph node      =', node.Label()
+  return target
+
+
 def ShowNitification(msg):
   n = pynotify.Notification("X-Desktop Switcher Error", "Error: %s" % msg)
   n.show()
@@ -135,12 +156,12 @@ def LoadConfig(config_path):
   return conf
 
 
-def ValidateGraph(graph_, x_desk_ctrl, fluxboxConf):
+def ValidateGraph(graph_, x_desk_ctrl, fluxbox_conf):
   node_labels = [n.Label() for n in graph_.Nodes()]
   if len(node_labels) != x_desk_ctrl.GetNumDesktops():
     raise ValueError('Graph nodes is %d != %d workspaces' % (
       len(graph_.Nodes()), x_desk_ctrl.GetNumDesktops()))
-  node_ids = [fluxboxConf.Label2Id(label) for label in node_labels]
+  node_ids = [fluxbox_conf.Label2Id(label) for label in node_labels]
   if sorted(node_ids) != range(len(node_ids)):
     raise ValueError('Node\'s labels are not consecutive natural numbers')
 
@@ -150,11 +171,15 @@ def main():
   parser.add_argument('--config', '-c', dest='config')
   parser.add_argument('--validate', dest='validate', action='store_const',
       const=True)
-  parser.add_argument('--go', dest='go', type=str, nargs='+')
   parser.add_argument('--print_workspaces_names', dest='print_workspaces_names',
       action='store_const', const=True)
   parser.add_argument('--print_fluxbox_conf', dest='print_fluxbox_conf',
       action='store_const', const=True)
+
+  parser.add_argument('--go', dest='go', type=str, nargs='+')
+  parser.add_argument('--window', '-w', dest='window', default=':ACTIVE:')
+  parser.add_argument('--send_window', dest='send_window', type=str, nargs='+')
+  parser.add_argument('--take_window', dest='take_window', type=str, nargs='+')
 
   args = parser.parse_args()
 
@@ -175,34 +200,31 @@ def main():
           'depth': 1,
         },
     }
-  graph_, fluxboxConf = GetGraphFromConfig(conf)
+  graph_, fluxbox_conf = GetGraphFromConfig(conf)
 
   if args.validate:
-    ValidateGraph(graph_, x_desk_ctrl, fluxboxConf)
+    ValidateGraph(graph_, x_desk_ctrl, fluxbox_conf)
     return
   elif args.print_fluxbox_conf:
     desktopsNum = x_desk_ctrl.GetNumDesktops()
-    nodesInOrder = [graph_.GetNode(fluxboxConf.Id2Label(i)) for i in xrange(desktopsNum)]
-    s = [fluxboxConf.WorkspaceName(n.Label()) for n in nodesInOrder]
+    nodesInOrder = [graph_.GetNode(fluxbox_conf.Id2Label(i)) for i in xrange(desktopsNum)]
+    s = [fluxbox_conf.WorkspaceName(n.Label()) for n in nodesInOrder]
     print '\n'.join([
         'session.screen0.workspaces: %d' % len(graph_.Nodes()),
         'session.screen0.workspaceNames: ' + ','.join(s),
        ])
     return
-  elif args.go:
+  elif args.go or args.take_window or args.send_window:
     try:
-      cur = x_desk_ctrl.GetCurrentDesktop()
-      label = fluxboxConf.Id2Label(cur)
-      print 'Current desktop =', cur
-      print 'Graph node      =', label
-
-      node = MoveInGraph(graph_, label, args.go)
-
-      target = fluxboxConf.Label2Id(node.Label())
-      print 'Target desktop  =', target
-      print 'Graph node      =', node.Label()
-
-      x_desk_ctrl.SetDesktop(target)
+      if args.go:
+        target = ResolveCommandsInGraph(graph_, args.go, x_desk_ctrl, fluxbox_conf)
+        x_desk_ctrl.SetDesktop(target)
+      elif args.take_window:
+        target = ResolveCommandsInGraph(graph_, args.take_window, x_desk_ctrl, fluxbox_conf)
+        x_desk_ctrl.TakeWindow(args.window,target)
+      elif args.send_window:
+        target = ResolveCommandsInGraph(graph_, args.send_window, x_desk_ctrl, fluxbox_conf)
+        x_desk_ctrl.SendWindow(args.window, target)
     except KeyError as e:
       ShowNitification("%s" % e)
       return 1
